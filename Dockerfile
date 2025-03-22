@@ -5,35 +5,36 @@ ENV PATH="$PNPM_HOME:$PATH"
 FROM base AS build
 WORKDIR /app
 
-# Debug: Check if .git is copied
+# Debug: Check initial context
 COPY . .
-RUN ls -la && \
-    echo "==== Root directory contents ====" && \
+RUN echo "==== Initial Build Context ====" && \
     pwd && \
-    ls -la .git || echo ".git not found in root"
+    ls -la / && \
+    echo "==== Git Status ====" && \
+    git status || echo "Git not initialized" && \
+    echo "==== Docker Build Args ====" && \
+    printenv
 
 RUN corepack enable
 RUN apk add --no-cache python3 alpine-sdk git
 
+# Debug: Check Git configuration
+RUN git --version && \
+    git config --list || echo "No git config"
+
 RUN --mount=type=cache,id=pnpm,target=/pnpm/store \
     pnpm install --prod --frozen-lockfile
 
-# Debug: Check deployed directory structure
-RUN pnpm deploy --filter=@imput/cobalt-api --prod /prod/api && \
-    echo "==== Deployed directory contents ====" && \
-    ls -la /prod/api && \
-    echo "==== Attempting .git copy ====" && \
-    cp -rv .git /prod/api/.git || echo "Failed to copy .git"
+RUN pnpm deploy --filter=@imput/cobalt-api --prod /prod/api
 
 FROM base AS api
 WORKDIR /app
 
 COPY --from=build --chown=node:node /prod/api /app
 
-# Debug: Check final stage
-RUN echo "==== Final stage contents ====" && \
-    ls -la && \
-    ls -la .git || echo ".git not found in final stage"
+# Debug: Check package.json for Git dependencies
+RUN echo "==== Package.json Contents ====" && \
+    cat package.json
 
 USER node
 
