@@ -9,13 +9,13 @@ COPY . /app
 RUN corepack enable
 RUN apk add --no-cache python3 alpine-sdk git
 
+# Initialize git and create static files with default values
+RUN echo "unknown" > /app/git_commit && \
+    echo "main" > /app/git_branch && \
+    echo "https://github.com/imputnet/cobalt" > /app/git_remote
+
 RUN --mount=type=cache,id=pnpm,target=/pnpm/store \
     pnpm install --prod --frozen-lockfile
-
-# Capture Git information before deploying
-RUN git rev-parse HEAD > /app/git_commit && \
-    git rev-parse --abbrev-ref HEAD > /app/git_branch && \
-    git config --get remote.origin.url > /app/git_remote
 
 RUN pnpm deploy --filter=@imput/cobalt-api --prod /prod/api
 
