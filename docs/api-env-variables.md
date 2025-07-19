@@ -3,15 +3,17 @@ you can customize your processing instance's behavior using these environment va
 this document is not final and will expand over time. feel free to improve it!
 
 ### general vars
-| name                | default   | value example                         |
-|:--------------------|:----------|:--------------------------------------|
-| API_URL             |           | `https://api.url.example/`            |
-| API_PORT            | `9000`    | `1337`                                |
-| COOKIE_PATH         |           | `/cookies.json`                       |
-| PROCESSING_PRIORITY |           | `10`                                  |
-| API_INSTANCE_COUNT  |           | `6`                                   |
-| API_REDIS_URL       |           | `redis://localhost:6379`              |
-| DISABLED_SERVICES   |           | `bilibili,youtube`                    |
+| name                   | default | value example                         |
+|:-----------------------|:--------|:--------------------------------------|
+| API_URL                |         | `https://api.url.example/`            |
+| API_PORT               | `9000`  | `1337`                                |
+| COOKIE_PATH            |         | `/cookies.json`                       |
+| PROCESSING_PRIORITY    |         | `10`                                  |
+| API_INSTANCE_COUNT     |         | `6`                                   |
+| API_REDIS_URL          |         | `redis://localhost:6379`              |
+| DISABLED_SERVICES      |         | `bilibili,youtube`                    |
+| FORCE_LOCAL_PROCESSING | `never` | `always`                              |
+| API_ENV_FILE           |         | `/.env`                               |
 
 [*view details*](#general)
 
@@ -32,7 +34,9 @@ this document is not final and will expand over time. feel free to improve it!
 | RATELIMIT_WINDOW         | `60`    | `120`         |
 | RATELIMIT_MAX            | `20`    | `30`          |
 | SESSION_RATELIMIT_WINDOW | `60`    | `60`          |
-| SESSION_RATELIMIT        | `10`    | `10`          |
+| SESSION_RATELIMIT_MAX    | `10`    | `10`          |
+| TUNNEL_RATELIMIT_WINDOW  | `60`    | `60`          |
+| TUNNEL_RATELIMIT_MAX     | `40`    | `10`          |
 
 [*view details*](#limits)
 
@@ -56,6 +60,8 @@ this document is not final and will expand over time. feel free to improve it!
 | CUSTOM_INNERTUBE_CLIENT          | `IOS`                    |
 | YOUTUBE_SESSION_SERVER           | `http://localhost:8080/` |
 | YOUTUBE_SESSION_INNERTUBE_CLIENT | `WEB_EMBEDDED`           |
+| YOUTUBE_ALLOW_BETTER_AUDIO       | `1`                      |
+| ENABLE_DEPRECATED_YOUTUBE_HLS    | `key`                    |
 
 [*view details*](#service-specific)
 
@@ -99,6 +105,15 @@ the value is a URL.
 comma-separated list which disables certain services from being used.
 
 the value is a string of cobalt-supported services.
+
+### FORCE_LOCAL_PROCESSING
+the value is a string: `never` (default), `session`, or `always`:
+- when the var is not defined or set to `never`, all requests will be able to set a preference via `localProcessing` in POST requests.
+- when set to `session`, only requests from session (Bearer token) clients will be forced to use on-device processing.
+- when set to `always`, all requests will be forced to use on-device processing, no matter the preference.
+
+### API_ENV_FILE
+the URL or local path to a `key=value`-style environment variable file. this is used for dynamically reloading environment variables. **not all environment variables are able to be updated by this.** (e.g. the ratelimiters are instantiated when starting cobalt, and cannot be changed)
 
 ## networking
 [*jump to the table*](#networking-vars)
@@ -156,8 +171,18 @@ rate limit time window for session creation requests, in **seconds**.
 
 the value is a number.
 
-### SESSION_RATELIMIT
+### SESSION_RATELIMIT_MAX
 amount of session requests to be allowed within the time window of `SESSION_RATELIMIT_WINDOW`.
+
+the value is a number.
+
+### TUNNEL_RATELIMIT_WINDOW
+rate limit time window for tunnel (proxy/stream) requests, in **seconds**.
+
+the value is a number.
+
+### TUNNEL_RATELIMIT_MAX
+amount of tunnel requests to be allowed within the time window of `TUNNEL_RATELIMIT_WINDOW`.
 
 the value is a number.
 
@@ -170,7 +195,7 @@ the value is a number.
 ### CORS_WILDCARD
 defines whether cross-origin resource sharing is enabled. when enabled, your instance will be accessible from foreign web pages.
 
-the value is a number. 0: disabled. 1: enabled.
+the value is a number, either `0` or `1`.
 
 ### CORS_URL
 configures the [cross-origin resource sharing origin](https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Access-Control-Allow-Origin). your instance will be available only from this URL if `CORS_WILDCARD` is set to `0`.
@@ -207,7 +232,7 @@ the value is a URL.
 ### API_AUTH_REQUIRED
 when set to `1`, the user always needs to be authenticated in some way before they can access the API (either via an api key or via turnstile, if enabled).
 
-the value is a number.
+the value is a number, either `0` or `1`.
 
 ## service-specific
 [*jump to the table*](#service-specific-vars)
@@ -226,3 +251,14 @@ the value is a URL.
 innertube client that's compatible with botguard's (web) `poToken` and `visitor_data`.
 
 the value is a string.
+
+### YOUTUBE_ALLOW_BETTER_AUDIO
+when set to `1`, cobalt will try to use higher quality audio if user requests it via `youtubeBetterAudio`. will negatively impact the rate limit of a secondary youtube client with a session.
+
+the value is a number, either `0` or `1`.
+
+### ENABLE_DEPRECATED_YOUTUBE_HLS
+the value is a string: `never` (default), `key`, or `always`:
+- when the var is not defined or set to `never`, `youtubeHLS` in POST requests will be ignored.
+- when set to `key`, only requests from api-key clients will be able to use `youtubeHLS` in POST requests.
+- when set to `always`, all requests will be able to use `youtubeHLS` in POST requests.

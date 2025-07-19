@@ -29,10 +29,11 @@ import loom from "./services/loom.js";
 import facebook from "./services/facebook.js";
 import bluesky from "./services/bluesky.js";
 import xiaohongshu from "./services/xiaohongshu.js";
+import newgrounds from "./services/newgrounds.js";
 
 let freebind;
 
-export default async function({ host, patternMatch, params }) {
+export default async function({ host, patternMatch, params, authType }) {
     const { url } = params;
     assert(url instanceof URL);
     let dispatcher, requestIP;
@@ -65,14 +66,26 @@ export default async function({ host, patternMatch, params }) {
             });
         }
 
+        // youtubeHLS will be fully removed in the future
+        let youtubeHLS = params.youtubeHLS;
+        const hlsEnv = env.enableDeprecatedYoutubeHls;
+
+        if (hlsEnv === "never" || (hlsEnv === "key" && authType !== "key")) {
+            youtubeHLS = false;
+        }
+
+        const subtitleLang =
+            params.subtitleLang !== "none" ? params.subtitleLang : undefined;
+
         switch (host) {
             case "twitter":
                 r = await twitter({
                     id: patternMatch.id,
                     index: patternMatch.index - 1,
-                    toGif: !!params.twitterGif,
+                    toGif: !!params.convertGif,
                     alwaysProxy: params.alwaysProxy,
-                    dispatcher
+                    dispatcher,
+                    subtitleLang
                 });
                 break;
 
@@ -81,7 +94,8 @@ export default async function({ host, patternMatch, params }) {
                     ownerId: patternMatch.ownerId,
                     videoId: patternMatch.videoId,
                     accessKey: patternMatch.accessKey,
-                    quality: params.videoQuality
+                    quality: params.videoQuality,
+                    subtitleLang,
                 });
                 break;
 
@@ -101,18 +115,24 @@ export default async function({ host, patternMatch, params }) {
                     dispatcher,
                     id: patternMatch.id.slice(0, 11),
                     quality: params.videoQuality,
-                    format: params.youtubeVideoCodec,
+                    codec: params.youtubeVideoCodec,
+                    container: params.youtubeVideoContainer,
                     isAudioOnly,
                     isAudioMuted,
                     dubLang: params.youtubeDubLang,
-                    youtubeHLS: params.youtubeHLS,
+                    youtubeHLS,
+                    subtitleLang,
                 }
 
                 if (url.hostname === "music.youtube.com" || isAudioOnly) {
                     fetchInfo.quality = "1080";
-                    fetchInfo.format = "vp9";
+                    fetchInfo.codec = "vp9";
                     fetchInfo.isAudioOnly = true;
                     fetchInfo.isAudioMuted = false;
+
+                    if (env.ytAllowBetterAudio && params.youtubeBetterAudio) {
+                        fetchInfo.quality = "max";
+                    }
                 }
 
                 r = await youtube(fetchInfo);
@@ -131,8 +151,9 @@ export default async function({ host, patternMatch, params }) {
                     shortLink: patternMatch.shortLink,
                     fullAudio: params.tiktokFullAudio,
                     isAudioOnly,
-                    h265: params.tiktokH265,
+                    h265: params.allowH265,
                     alwaysProxy: params.alwaysProxy,
+                    subtitleLang,
                 });
                 break;
 
@@ -150,6 +171,7 @@ export default async function({ host, patternMatch, params }) {
                     password: patternMatch.password,
                     quality: params.videoQuality,
                     isAudioOnly,
+                    subtitleLang,
                 });
                 break;
 
@@ -201,6 +223,7 @@ export default async function({ host, patternMatch, params }) {
                     key: patternMatch.key,
                     quality: params.videoQuality,
                     isAudioOnly,
+                    subtitleLang,
                 });
                 break;
 
@@ -217,7 +240,8 @@ export default async function({ host, patternMatch, params }) {
 
             case "loom":
                 r = await loom({
-                    id: patternMatch.id
+                    id: patternMatch.id,
+                    subtitleLang,
                 });
                 break;
 
@@ -239,9 +263,16 @@ export default async function({ host, patternMatch, params }) {
             case "xiaohongshu":
                 r = await xiaohongshu({
                     ...patternMatch,
-                    h265: params.tiktokH265,
+                    h265: params.allowH265,
                     isAudioOnly,
                     dispatcher,
+                });
+                break;
+
+            case "newgrounds":
+                r = await newgrounds({
+                    ...patternMatch,
+                    quality: params.videoQuality,
                 });
                 break;
 
@@ -267,7 +298,7 @@ export default async function({ host, patternMatch, params }) {
             switch(r.error) {
                 case "content.too_long":
                     context = {
-                        limit: env.durationLimit / 60,
+                        limit: parseFloat((env.durationLimit / 60).toFixed(2)),
                     }
                     break;
 
@@ -288,6 +319,15 @@ export default async function({ host, patternMatch, params }) {
             })
         }
 
+        let localProcessing = params.localProcessing;
+        const lpEnv = env.forceLocalProcessing;
+        const shouldForceLocal = lpEnv === "always" || (lpEnv === "session" && authType === "session");
+        const localDisabled = (!localProcessing || localProcessing === "disabled");
+
+        if (shouldForceLocal && localDisabled) {
+            localProcessing = "preferred";
+        }
+
         return matchAction({
             r,
             host,
@@ -296,10 +336,11 @@ export default async function({ host, patternMatch, params }) {
             isAudioMuted,
             disableMetadata: params.disableMetadata,
             filenameStyle: params.filenameStyle,
-            twitterGif: params.twitterGif,
+            convertGif: params.convertGif,
             requestIP,
             audioBitrate: params.audioBitrate,
-            alwaysProxy: params.alwaysProxy,
+            alwaysProxy: params.alwaysProxy || localProcessing === "forced",
+            localProcessing,
         })
     } catch {
         return createResponse("error", {

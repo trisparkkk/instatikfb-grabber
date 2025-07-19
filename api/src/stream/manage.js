@@ -41,7 +41,10 @@ export function createStream(obj) {
             audioFormat: obj.audioFormat,
 
             isHLS: obj.isHLS || false,
-            originalRequest: obj.originalRequest
+            originalRequest: obj.originalRequest,
+
+            // url to a subtitle file
+            subtitles: obj.subtitles,
         };
 
     // FIXME: this is now a Promise, but it is not awaited
@@ -70,11 +73,70 @@ export function createStream(obj) {
     return streamLink.toString();
 }
 
-export function getInternalStream(id) {
+export function createProxyTunnels(info) {
+    const proxyTunnels = [];
+
+    let urls = info.url;
+
+    if (typeof urls === "string") {
+        urls = [urls];
+    }
+
+    const tunnelTemplate = {
+        type: "proxy",
+        headers: info?.headers,
+        requestIP: info?.requestIP,
+    }
+
+    for (const url of urls) {
+        proxyTunnels.push(
+            createStream({
+                ...tunnelTemplate,
+                url,
+                service: info?.service,
+                originalRequest: info?.originalRequest,
+            })
+        );
+    }
+
+    if (info.subtitles) {
+        proxyTunnels.push(
+            createStream({
+                ...tunnelTemplate,
+                url: info.subtitles,
+                service: `${info?.service}-subtitles`,
+            })
+        );
+    }
+
+    if (info.cover) {
+        proxyTunnels.push(
+            createStream({
+                ...tunnelTemplate,
+                url: info.cover,
+                service: `${info?.service}-cover`,
+            })
+        );
+    }
+
+    return proxyTunnels;
+}
+
+export function getInternalTunnel(id) {
     return internalStreamCache.get(id);
 }
 
-export function createInternalStream(url, obj = {}) {
+export function getInternalTunnelFromURL(url) {
+    url = new URL(url);
+    if (url.hostname !== '127.0.0.1') {
+        return;
+    }
+
+    const id = url.searchParams.get('id');
+    return getInternalTunnel(id);
+}
+
+export function createInternalStream(url, obj = {}, isSubtitles) {
     assert(typeof url === 'string');
 
     let dispatcher = obj.dispatcher;
@@ -95,9 +157,12 @@ export function createInternalStream(url, obj = {}) {
         headers = new Map(Object.entries(obj.headers));
     }
 
+    // subtitles don't need special treatment unlike big media files
+    const service = isSubtitles ? `${obj.service}-subtitles` : obj.service;
+
     internalStreamCache.set(streamID, {
         url,
-        service: obj.service,
+        service,
         headers,
         controller,
         dispatcher,
@@ -131,7 +196,7 @@ export function destroyInternalStream(url) {
     const id = getInternalTunnelId(url);
 
     if (internalStreamCache.has(id)) {
-        closeRequest(getInternalStream(id)?.controller);
+        closeRequest(getInternalTunnel(id)?.controller);
         internalStreamCache.delete(id);
     }
 }
@@ -143,7 +208,7 @@ const transplantInternalTunnels = function(tunnelUrls, transplantUrls) {
 
     for (const [ tun, url ] of zip(tunnelUrls, transplantUrls)) {
         const id = getInternalTunnelId(tun);
-        const itunnel = getInternalStream(id);
+        const itunnel = getInternalTunnel(id);
 
         if (!itunnel) continue;
         itunnel.url = url;
@@ -207,6 +272,14 @@ function wrapStream(streamInfo) {
             );
         }
     } else throw 'invalid urls';
+
+    if (streamInfo.subtitles) {
+        streamInfo.subtitles = createInternalStream(
+            streamInfo.subtitles,
+            streamInfo,
+            /*isSubtitles=*/true
+        );
+    }
 
     return streamInfo;
 }
