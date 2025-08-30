@@ -1,4 +1,4 @@
-import { Constants } from "@imput/youtubei.js";
+import { Constants } from "youtubei.js";
 import { services } from "../processing/service-config.js";
 import { updateEnv, canonicalEnv, env as currentEnv } from "../config.js";
 
@@ -10,6 +10,34 @@ import { Green, Yellow } from "../misc/console-text.js";
 const forceLocalProcessingOptions = ["never", "session", "always"];
 const youtubeHlsOptions = ["never", "key", "always"];
 
+const httpProxyVariables = ["NO_PROXY", "HTTP_PROXY", "HTTPS_PROXY"].flatMap(
+    k => [ k, k.toLowerCase() ]
+);
+
+const changeCallbacks = {};
+
+const onEnvChanged = (changes) => {
+    for (const key of changes) {
+        if (changeCallbacks[key]) {
+            changeCallbacks[key].map(fn => {
+                try { fn() } catch {}
+            });
+        }
+    }
+}
+
+const subscribe = (keys, fn) => {
+    keys = [keys].flat();
+
+    for (const key of keys) {
+        if (key in currentEnv && key !== 'subscribe') {
+            changeCallbacks[key] ??= [];
+            changeCallbacks[key].push(fn);
+            fn();
+        } else throw `invalid env key ${key}`;
+    }
+}
+
 export const loadEnvs = (env = process.env) => {
     const allServices = new Set(Object.keys(services));
     const disabledServices = env.DISABLED_SERVICES?.split(',') || [];
@@ -18,6 +46,18 @@ export const loadEnvs = (env = process.env) => {
             return e;
         }
     }));
+
+    // we need to copy the proxy envs (HTTP_PROXY, HTTPS_PROXY)
+    // back into process.env, so that EnvHttpProxyAgent can pick
+    // them up later
+    for (const key of httpProxyVariables) {
+        const value = env[key] ?? canonicalEnv[key];
+        if (value !== undefined) {
+            process.env[key] = env[key];
+        } else {
+            delete process.env[key];
+        }
+    }
 
     return {
         apiURL: env.API_URL || '',
@@ -55,6 +95,9 @@ export const loadEnvs = (env = process.env) => {
 
         externalProxy: env.API_EXTERNAL_PROXY,
 
+        // used only for comparing against old values when envs are being updated
+        httpProxyValues: httpProxyVariables.map(k => String(env[k])).join(''),
+
         turnstileSitekey: env.TURNSTILE_SITEKEY,
         turnstileSecret: env.TURNSTILE_SECRET,
         jwtSecret: env.JWT_SECRET,
@@ -87,8 +130,12 @@ export const loadEnvs = (env = process.env) => {
 
         envFile: env.API_ENV_FILE,
         envRemoteReloadInterval: 300,
+
+        subscribe,
     };
 }
+
+let loggedProxyWarning = false;
 
 export const validateEnvs = async (env) => {
     if (env.sessionEnabled && env.jwtSecret.length < 16) {
@@ -125,6 +172,15 @@ export const validateEnvs = async (env) => {
 
     if (env.externalProxy && env.freebindCIDR) {
         throw new Error('freebind is not available when external proxy is enabled')
+    }
+
+    if (env.externalProxy && !loggedProxyWarning) {
+        console.error('API_EXTERNAL_PROXY is deprecated and will be removed in a future release.');
+        console.error('Use HTTP_PROXY or HTTPS_PROXY instead.');
+        console.error('You can read more about the new proxy variables in docs/api-env-variables.md\n');
+
+        // prevent the warning from being printed on every env validation
+        loggedProxyWarning = true;
     }
 
     return env;
@@ -170,11 +226,14 @@ const wrapReload = (contents) => {
             return;
         }
 
+        onEnvChanged(changes);
+
         console.log(`${Green('[✓]')} envs reloaded successfully!`);
         for (const key of changes) {
             const value = currentEnv[key];
             const isSecret = key.toLowerCase().includes('apikey')
-                          || key.toLowerCase().includes('secret');
+                          || key.toLowerCase().includes('secret')
+                          || key === 'httpProxyValues';
 
             if (!value) {
                 console.log(`    removed: ${key}`);

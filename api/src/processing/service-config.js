@@ -7,6 +7,7 @@ export const services = {
     bilibili: {
         patterns: [
             "video/:comId",
+            "video/:comId?p=:partId",
             "_shortLink/:comShortLink",
             "_tv/:lang/video/:tvId",
             "_tv/video/:tvId"
@@ -165,6 +166,7 @@ export const services = {
     twitch: {
         patterns: [":channel/clip/:clip"],
         tld: "tv",
+        subdomains: ["clips", "www", "m"],
     },
     twitter: {
         patterns: [
@@ -207,7 +209,7 @@ export const services = {
         patterns: [
             "explore/:id?xsec_token=:token",
             "discovery/item/:id?xsec_token=:token",
-            "a/:shareId"
+            ":shareType/:shareId",
         ],
         altDomains: ["xhslink.com"],
     },
